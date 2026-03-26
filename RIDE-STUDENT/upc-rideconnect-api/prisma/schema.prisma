@@ -1,0 +1,178 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── USERS ─────────────────────────────────────────────
+model User {
+  id            Int       @id @default(autoincrement())
+  firstName     String    @map("first_name")
+  lastName      String    @map("last_name")
+  email         String    @unique
+  studentCard   String    @unique @map("student_card")
+  phone         String
+  role          String    @default("passenger") // driver, passenger, both
+  passwordHash  String    @map("password_hash")
+  avatarUrl     String?   @map("avatar_url")
+  reputation    Float     @default(0)
+  totalTrips    Int       @default(0) @map("total_trips")
+  totalEarnedFc Int       @default(0) @map("total_earned_fc")
+  totalSavedFc  Int       @default(0) @map("total_saved_fc")
+  isVerified    Boolean   @default(false) @map("is_verified")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  trips         Trip[]
+  bookings      Booking[]
+  ratingsGiven  Rating[]  @relation("RaterRatings")
+  ratingsReceived Rating[] @relation("RatedRatings")
+  payments      Payment[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+// ── NEIGHBORHOODS ─────────────────────────────────────
+model Neighborhood {
+  id        Int     @id @default(autoincrement())
+  name      String  @unique
+  latitude  Float
+  longitude Float
+  zoneGroup String? @map("zone_group")
+
+  trips         Trip[]
+  meetingPoints MeetingPoint[]
+  adjacentTo    NeighborhoodAdjacency[] @relation("FromNeighborhood")
+  adjacentFrom  NeighborhoodAdjacency[] @relation("ToNeighborhood")
+
+  @@map("neighborhoods")
+}
+
+// ── MEETING POINTS ────────────────────────────────────
+model MeetingPoint {
+  id              Int          @id @default(autoincrement())
+  neighborhoodId  Int          @map("neighborhood_id")
+  name            String
+  type            String?      // rond-point, arret-bus, intersection, marche
+  latitude        Float
+  longitude       Float
+  description     String?
+
+  neighborhood    Neighborhood @relation(fields: [neighborhoodId], references: [id])
+  trips           Trip[]       @relation("TripMeetingPoint")
+  bookings        Booking[]
+
+  @@map("meeting_points")
+}
+
+// ── TRIPS ─────────────────────────────────────────────
+model Trip {
+  id              Int       @id @default(autoincrement())
+  driverId        Int       @map("driver_id")
+  neighborhoodId  Int       @map("neighborhood_id")
+  departureTime   DateTime  @map("departure_time")
+  totalSeats      Int       @map("total_seats")
+  availableSeats  Int       @map("available_seats")
+  priceFc         Int       @map("price_fc")
+  waypointsText   String?   @map("waypoints_text")
+  meetingPointId  Int?      @map("meeting_point_id")
+  status          String    @default("active") // active, full, in_progress, completed, cancelled
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  driver          User         @relation(fields: [driverId], references: [id])
+  neighborhood    Neighborhood @relation(fields: [neighborhoodId], references: [id])
+  meetingPoint    MeetingPoint? @relation("TripMeetingPoint", fields: [meetingPointId], references: [id])
+  bookings        Booking[]
+  ratings         Rating[]
+
+  @@map("trips")
+}
+
+// ── BOOKINGS ──────────────────────────────────────────
+model Booking {
+  id              Int       @id @default(autoincrement())
+  tripId          Int       @map("trip_id")
+  passengerId     Int       @map("passenger_id")
+  meetingPointId  Int?      @map("meeting_point_id")
+  status          String    @default("pending") // pending, paid, confirmed, completed, cancelled
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  trip            Trip         @relation(fields: [tripId], references: [id])
+  passenger       User         @relation(fields: [passengerId], references: [id])
+  meetingPoint    MeetingPoint? @relation(fields: [meetingPointId], references: [id])
+  payment         Payment?
+
+  @@unique([tripId, passengerId])
+  @@map("bookings")
+}
+
+// ── PAYMENTS ──────────────────────────────────────────
+model Payment {
+  id              Int       @id @default(autoincrement())
+  bookingId       Int       @unique @map("booking_id")
+  userId          Int       @map("user_id")
+  amountFc        Int       @map("amount_fc")
+  driverShareFc   Int       @map("driver_share_fc")
+  platformFeeFc   Int       @map("platform_fee_fc")
+  operator        String    // M-Pesa, Airtel Money, Orange Money
+  phoneNumber     String    @map("phone_number")
+  transactionRef  String?   @map("transaction_ref")
+  status          String    @default("pending") // pending, processing, completed, failed
+  paidAt          DateTime? @map("paid_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  booking         Booking   @relation(fields: [bookingId], references: [id])
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@map("payments")
+}
+
+// ── RATINGS ───────────────────────────────────────────
+model Rating {
+  id        Int       @id @default(autoincrement())
+  tripId    Int       @map("trip_id")
+  raterId   Int       @map("rater_id")
+  ratedId   Int       @map("rated_id")
+  score     Int       // 1-5
+  comment   String?
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  trip      Trip      @relation(fields: [tripId], references: [id])
+  rater     User      @relation("RaterRatings", fields: [raterId], references: [id])
+  rated     User      @relation("RatedRatings", fields: [ratedId], references: [id])
+
+  @@unique([tripId, raterId, ratedId])
+  @@map("ratings")
+}
+
+// ── NOTIFICATIONS ─────────────────────────────────────
+model Notification {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  type      String    // booking_new, payment_received, trip_reminder, rating_received
+  title     String
+  message   String
+  isRead    Boolean   @default(false) @map("is_read")
+  metadata  Json?
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+// ── NEIGHBORHOOD ADJACENCY ────────────────────────────
+model NeighborhoodAdjacency {
+  neighborhoodId Int   @map("neighborhood_id")
+  adjacentId     Int   @map("adjacent_id")
+  distanceKm     Float @map("distance_km")
+
+  neighborhood   Neighborhood @relation("FromNeighborhood", fields: [neighborhoodId], references: [id])
+  adjacent       Neighborhood @relation("ToNeighborhood", fields: [adjacentId], references: [id])
+
+  @@id([neighborhoodId, adjacentId])
+  @@map("neighborhood_adjacency")
+}
